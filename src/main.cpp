@@ -10,25 +10,22 @@
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define SCREEN_ADDRESS 0x3C
 #define RELAY_PIN 2
-#define ON_UP_BTN 3
-#define OFF_DOWN_BTN 4
-#define SELECT_BTN 5
-#define RESET_BTN 8
+#define MANUAL_BTN 3
+#define AUTOMATIC_BTN 4
+#define RESET_BTN 5
 #define DHT_PIN 7
 
 // States
 enum FanState {
-  OFF,
   MANUAL,
-  AUTOMATIC
+  AUTOMATIC,
+  AUTOMATIC_DEFAULT
 };
 
 // Events
 enum FanEvent {
   MANUAL_BUTTON_CLICK,
   AUTOMATIC_BUTTON_CLICK,
-  OFF_BUTTON_CLICK,
-  MANUAL_MODE_END
 };
 
 // Variables
@@ -40,23 +37,23 @@ byte temperature = 0;
 byte humidity = 0;
 byte data[40] = {0};
 bool fanSignal = false;
-FanState currentState = OFF;
-
+FanState currentState = AUTOMATIC_DEFAULT;
+unsigned long lastManualActivationTime = 0;
 
 // Functions
 void read_sensor();
-void check_state();
-void run_histerisis();
-
-
+void handleEvent(FanEvent event);
+void handleManualMode();
+void handleAutomaticMode();
+void handleAutomaticDefault();
 
 
 void setup() {
   Serial.begin(9600);
   // PIN Config
   pinMode(RELAY_PIN, OUTPUT);
-  pinMode(ON_UP_BTN, INPUT_PULLUP);
-  pinMode(OFF_DOWN_BTN, INPUT_PULLUP);
+  pinMode(MANUAL_BTN, INPUT_PULLUP);
+  pinMode(AUTOMATIC_BTN, INPUT_PULLUP);
   pinMode(RESET_BTN, INPUT_PULLUP);
 
 
@@ -74,52 +71,103 @@ void setup() {
 }
 
 void loop() {
-
-  check_state();
-  read_sensor();
-  run_histerisis();
-
-  delay(1000);
-}
-
-void read_sensor() {
-  if(sensorDHT.read(&temperature, &humidity, data)){
-    return;
+  if (digitalRead(MANUAL_BTN) == LOW)
+  {
+    handleEvent(MANUAL_BUTTON_CLICK);
   }
-  
-  if (cutInHumidity < (int) humidity)
+  else if (digitalRead(AUTOMATIC_BTN) == LOW)
   {
-    fanSignal = true;
-  }
-  else if ((cutInHumidity - (int) humidity) > histeresis)
-  {
-    fanSignal = false;
-  }  
-}
-
-void check_state() {
-  if ((digitalRead(ON_UP_BTN) == LOW) && !fanSignal)
-  {
-    digitalWrite(RELAY_PIN, HIGH);
-    delay(15000);
-  }
-  else if ((digitalRead(OFF_DOWN_BTN) == LOW) && !fanSignal)
-  {
-    digitalWrite(RELAY_PIN, LOW);
-  }
-  else if (fanSignal)
-  {
-    run_histerisis();
-  }
-}
-
-void run_histerisis() {
-    if (fanSignal)
-  {
-    digitalWrite(RELAY_PIN, HIGH);
+    handleEvent(AUTOMATIC_BUTTON_CLICK);
   }
   else
   {
-    digitalWrite(RELAY_PIN, LOW);
+    handleAutomaticDefault();
   }
 }
+
+void handleEvent(FanEvent event){
+  switch (event)
+  {
+  case MANUAL_BUTTON_CLICK:
+    display.clearDisplay();
+    display.setCursor(0, 10);
+    display.println("MANUAL");
+    display.display();
+    handleManualMode();
+    break;
+  case AUTOMATIC_BUTTON_CLICK:
+    display.clearDisplay();
+    display.setCursor(0, 10);
+    display.println("AUTOMATIC");
+    display.display();
+    handleAutomaticMode();
+    break;
+  }
+}
+
+void handleManualMode(){
+  switch (currentState)
+  {
+  case MANUAL:
+    if (millis() - lastManualActivationTime >= 900000)
+    {
+      digitalWrite(RELAY_PIN, LOW);
+      currentState = AUTOMATIC;
+    }
+    break;
+  case AUTOMATIC:
+    digitalWrite(RELAY_PIN, HIGH);
+    lastManualActivationTime = millis();
+    currentState = MANUAL;
+    break;
+  case AUTOMATIC_DEFAULT:
+    digitalWrite(RELAY_PIN, HIGH);
+    lastManualActivationTime = millis();
+    currentState = MANUAL;
+    break;
+  }
+}
+
+void handleAutomaticMode(){
+  switch (currentState)
+  {
+  case MANUAL:
+    currentState = AUTOMATIC;
+    break;
+  case AUTOMATIC:
+    read_sensor();
+    delay(1000);
+    break;
+  case AUTOMATIC_DEFAULT:
+    currentState = AUTOMATIC;
+    break;
+  }
+}
+
+void handleAutomaticDefault(){
+  switch (currentState)
+  {
+  case MANUAL:
+    break;
+  case AUTOMATIC:
+    break;
+  case AUTOMATIC_DEFAULT:
+    read_sensor();
+    delay(1000);
+    break;
+  }
+}
+
+void read_sensor() {
+  sensorDHT.read(&temperature, &humidity, data);
+  
+  if (cutInHumidity < (int) humidity)
+  {
+    digitalWrite(RELAY_PIN, HIGH);
+  }
+  else if ((cutInHumidity - (int) humidity) > histeresis)
+  {
+    digitalWrite(RELAY_PIN, LOW);
+  }  
+}
+
