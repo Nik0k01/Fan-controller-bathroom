@@ -5,6 +5,9 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <OneButton.h>
+#include <robotoMedium.h>
+#include <robotoSmall.h>
+#include <robotoNormal.h>
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
@@ -12,8 +15,11 @@
 #define RELAY_PIN 2
 #define MANUAL_BTN 3
 #define AUTOMATIC_BTN 4
-#define RESET_BTN 5
 #define DHT_PIN 7
+
+static const unsigned char hysteresis_bits[] PROGMEM = {
+    0xf8, 0x07, 0x88, 0x00, 0x88, 0x00, 0x88, 0x00, 0x88, 0x00, 0x88, 0x00,
+    0x88, 0x00, 0x88, 0x00, 0x88, 0x00, 0x88, 0x00, 0xff, 0x00};
 
 // States
 enum FanState {
@@ -30,7 +36,7 @@ enum FanEvent {
 
 // Variables
 SimpleDHT11 sensorDHT(DHT_PIN);
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, RESET_BTN);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 int histeresis = 5;
 int cutInHumidity = 60;
 byte temperature = 0;
@@ -46,28 +52,20 @@ void handleEvent(FanEvent event);
 void handleManualMode();
 void handleAutomaticMode();
 void handleAutomaticDefault();
+void draw();
 
 
 void setup() {
-  Serial.begin(9600);
   // PIN Config
   pinMode(RELAY_PIN, OUTPUT);
   pinMode(MANUAL_BTN, INPUT_PULLUP);
   pinMode(AUTOMATIC_BTN, INPUT_PULLUP);
-  pinMode(RESET_BTN, INPUT_PULLUP);
-
-
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { 
-    Serial.println("SSD1306 allocation failed");
     for(;;);
   }
   display.clearDisplay();
-  
-  display.setTextSize(1);
   display.setTextColor(WHITE);
-  display.setCursor(0, 10);
-  display.println("Hello, world!");
-  display.display();
+  display.setTextSize(1);
 }
 
 void loop() {
@@ -83,23 +81,16 @@ void loop() {
   {
     handleAutomaticDefault();
   }
+  draw();
 }
 
 void handleEvent(FanEvent event){
   switch (event)
   {
   case MANUAL_BUTTON_CLICK:
-    display.clearDisplay();
-    display.setCursor(0, 10);
-    display.println("MANUAL");
-    display.display();
     handleManualMode();
     break;
   case AUTOMATIC_BUTTON_CLICK:
-    display.clearDisplay();
-    display.setCursor(0, 10);
-    display.println("AUTOMATIC");
-    display.display();
     handleAutomaticMode();
     break;
   }
@@ -150,6 +141,7 @@ void handleAutomaticDefault(){
   case MANUAL:
     break;
   case AUTOMATIC:
+    currentState = AUTOMATIC_DEFAULT;
     break;
   case AUTOMATIC_DEFAULT:
     read_sensor();
@@ -171,3 +163,45 @@ void read_sensor() {
   }  
 }
 
+void draw(){
+  display.clearDisplay();
+  display.drawLine(80, 46, 128, 46, 1);
+  display.drawLine(80, 0, 80, 64, 1);
+  display.setCursor(0, 22);
+  display.setFont(&Roboto_Mono_Medium_30);
+  display.print("H:");
+  display.print((int) humidity);
+  display.setCursor(0, 55);
+  display.print("T:");
+  display.print((int) temperature);
+  display.setFont(&Roboto_Mono_Medium_9);
+  display.setCursor(74, 9);
+  display.print("%");
+  display.setCursor(74, 40);
+  display.print("O");
+  display.setCursor(120, 9);
+  display.print("%");
+  display.setFont(&Roboto_Mono_Medium_30);
+  display.setCursor(85, 22);
+  display.print(cutInHumidity);
+  display.setFont(&Roboto_Mono_Medium_10);
+  display.setCursor(85, 40);
+  display.print("Diff:");
+  display.print(histeresis);
+  switch (currentState)
+  {
+  case MANUAL:
+    display.setCursor(85, 58);
+    display.print("Manual");
+    break;
+  case AUTOMATIC:
+    display.setCursor(85, 58);
+    display.print("Auto");
+    break;
+  case AUTOMATIC_DEFAULT:
+    display.setCursor(85, 58);
+    display.print("Auto");
+    break;
+  }
+  display.display();
+}
